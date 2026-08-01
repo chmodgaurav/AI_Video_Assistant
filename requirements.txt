@@ -4,6 +4,7 @@ ffmpeg-python
 openai-whisper
 torch
 torchaudio
+torchvision
 deep-translator
 langchain
 langchain-core
