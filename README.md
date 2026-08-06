@@ -1,32 +1,68 @@
 # AI Video Assistant
 
-AI Video Assistant is a Python application that extracts meeting intelligence from YouTube or local audio/video files. It downloads or converts audio, transcribes speech, summarizes content, extracts action items, decisions, questions, and enables RAG-powered Q&A over transcript context.
+A Python application that extracts meeting intelligence from YouTube links or local audio/video files: transcription, summarization, action items, key decisions, open questions, and retrieval-augmented Q&A over the transcript.
 
 ## Features
 
-- Download and convert YouTube audio to WAV
-- Chunk audio for reliable transcription
+- Download and convert YouTube audio to WAV (`yt-dlp`)
+- Chunk audio for reliable, memory-safe transcription
 - Local Whisper transcription for English audio
 - Sarvam transcription for Hinglish audio
-- Meeting summarization and title generation
+- Meeting summarization and automatic title generation
 - Extraction of action items, key decisions, and open questions
-- Retrieval-augmented generation (RAG) chat over meeting transcript
-- Optional Streamlit UI for friendly web-based interaction
+- Retrieval-augmented generation (RAG) chat over the meeting transcript
+- Optional Streamlit UI
+
+## Pipeline
+
+```
+YouTube URL / local file
+        │
+        ▼
+audio_processor.process_input()   → download/convert → chunked WAV files
+        │
+        ▼
+transcriber.transcribe_all()      → Whisper (English) or Sarvam (Hinglish)
+        │
+        ├─→ summarizer.generate_title() / summarize()
+        ├─→ extractor.extract_action_items() / extract_key_decisions() / extract_questions()
+        └─→ rag_engine.build_rag_chain()  → vector_store.py (Chroma + HF embeddings)
+                        │
+                        ▼
+                 ask_question() — chat over the transcript
+```
+
+## Project Structure
+
+| Path | Purpose |
+|---|---|
+| `main.py` | CLI entry point and pipeline orchestration |
+| `streamlit_app.py` | Streamlit web interface |
+| `test.py` | Runs the pipeline against a sample YouTube URL |
+| `core/audio_processor.py` | Download/convert audio, chunk WAV files |
+| `core/transcriber.py` | Whisper and Sarvam transcription logic |
+| `core/summarizer.py` | Transcript summarization and title generation |
+| `core/extractor.py` | Action item, decision, and question extraction |
+| `core/rag_engine.py` | RAG chain construction and question answering |
+| `core/vector_store.py` | Embeddings and Chroma vector store persistence |
+| `utils/audio_processor.py` | Shared audio download/conversion/chunking helpers |
 
 ## Requirements
 
 - Python 3.10+
-- `ffmpeg` installed on the system
+- `ffmpeg` installed on the system (required by `pydub` for format conversion/chunking)
 
-Install Python dependencies:
+## Installation
 
 ```bash
+git clone https://github.com/chmodgaurav/AI_Video_Assistant.git
+cd AI_Video_Assistant
 pip install -r requirements.txt
 ```
 
-## Environment Variables
+## Configuration
 
-Create a `.env` file in the project root with the following keys:
+Create a `.env` file in the project root:
 
 ```env
 MISTRAL_API_KEY=your_mistral_api_key
@@ -34,65 +70,45 @@ SARVAM_API_KEY=your_sarvam_api_key
 WHISPER_MODEL=small
 ```
 
-- `MISTRAL_API_KEY` is required for summarization, extraction, title generation, and RAG chat.
-- `SARVAM_API_KEY` is required only when using `hinglish` transcription.
-- `WHISPER_MODEL` defaults to `small` if not set.
+- `MISTRAL_API_KEY` — required for summarization, extraction, title generation, and RAG chat
+- `SARVAM_API_KEY` — required only when using `hinglish` transcription
+- `WHISPER_MODEL` — defaults to `small` if unset
 
 ## Usage
 
-### 1. CLI mode
-
-Run the main pipeline from `main.py`:
+### CLI
 
 ```bash
 python main.py
 ```
 
-The CLI prompts for a YouTube URL or a local file path and a language option.
-
-Supported language values:
+Prompts for a YouTube URL or local file path, then a language option:
 
 - `english` — local Whisper transcription
-- `hinglish` — Sarvam transcription with Hinglish support
+- `hinglish` — Sarvam transcription
 
-### 2. Streamlit UI
-
-Start the app with:
+### Streamlit UI
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-Open the local Streamlit URL shown in the terminal to use the web interface.
+Open the local URL shown in the terminal to upload a file or paste a link through the browser.
 
-### 3. Test script
-
-Run `test.py` to execute the pipeline against a sample YouTube URL:
+### Sample run
 
 ```bash
 python test.py
 ```
 
-## Project Structure
-
-- `main.py` — CLI entry point and pipeline orchestration
-- `streamlit_app.py` — Streamlit user interface
-- `core/` — main AI pipeline components
-  - `audio_processor.py` — download/convert audio and chunk WAV files
-  - `transcriber.py` — Whisper and Sarvam transcription logic
-  - `summarizer.py` — transcript summarization and title generation
-  - `extractor.py` — action items, decisions, and question extraction
-  - `rag_engine.py` — retrieval-augmented generation chain and question answering
-  - `vector_store.py` — embeddings and Chroma vector store persistence
-- `utils/` — supporting utilities
-  - `audio_processor.py` — audio download/conversion and chunking functions
+Runs the full pipeline end-to-end against a sample YouTube URL for a quick smoke test.
 
 ## Notes
 
-- `yt-dlp` is used for downloading audio from YouTube links.
-- `whisper` requires a local model and may use significant disk space.
-- `pydub` and `ffmpeg` are required for audio format conversion and chunking.
-- The RAG chat uses Chroma and Hugging Face embeddings for retrieval.
+- `yt-dlp` handles YouTube audio extraction.
+- `openai-whisper` downloads and caches a local model on first use — this can take significant disk space depending on `WHISPER_MODEL`.
+- `pydub` + `ffmpeg` handle audio format conversion and chunking.
+- The RAG chat uses Chroma with Hugging Face embeddings for transcript retrieval.
 
 ## License
 
