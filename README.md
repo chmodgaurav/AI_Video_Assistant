@@ -1,17 +1,25 @@
 # AI Video Assistant
 
-A Python application that extracts meeting intelligence from YouTube links or local audio/video files: transcription, summarization, action items, key decisions, open questions, and retrieval-augmented Q&A over the transcript.
+A Python pipeline that turns a YouTube link or local audio/video file into meeting intelligence: transcript, title, summary, action items, key decisions, open questions, and a RAG chat interface over the transcript.
 
 ## Features
 
-- Download and convert YouTube audio to WAV (`yt-dlp`)
-- Chunk audio for reliable, memory-safe transcription
+- Download and convert YouTube audio to WAV via `yt-dlp`
+- Chunk audio into memory-safe pieces before transcription
 - Local Whisper transcription for English audio
-- Sarvam transcription for Hinglish audio
-- Meeting summarization and automatic title generation
+- Sarvam speech-to-text-translate API for Hinglish audio (30s API limit handled by slicing into 25s pieces)
+- Automatic title generation and meeting summarization
 - Extraction of action items, key decisions, and open questions
-- Retrieval-augmented generation (RAG) chat over the meeting transcript
-- Optional Streamlit UI
+- Retrieval-augmented chat over the transcript (Chroma + Hugging Face sentence-transformer embeddings)
+- CLI and Streamlit interfaces
+
+## Tech Stack
+
+- **Transcription:** `openai-whisper` (local, English) / Sarvam API (Hinglish)
+- **LLM:** Mistral (`mistral-small-latest`) via `langchain-mistralai`, used for titling, summarization, extraction, and RAG answers
+- **RAG:** `langchain`, Chroma vector store, `sentence-transformers` (`all-MiniLM-L6-v2`) via `langchain-huggingface`
+- **Audio:** `yt-dlp`, `pydub` + `ffmpeg`
+- **UI:** Streamlit (`streamlit_app.py`), plain CLI (`main.py`)
 
 ## Pipeline
 
@@ -19,38 +27,22 @@ A Python application that extracts meeting intelligence from YouTube links or lo
 YouTube URL / local file
         │
         ▼
-audio_processor.process_input()   → download/convert → chunked WAV files
+utils/audio_processor.process_input()   → download/convert → chunked WAV files
         │
         ▼
-transcriber.transcribe_all()      → Whisper (English) or Sarvam (Hinglish)
+core/transcriber.transcribe_all()       → Whisper (English) or Sarvam (Hinglish)
         │
-        ├─→ summarizer.generate_title() / summarize()
-        ├─→ extractor.extract_action_items() / extract_key_decisions() / extract_questions()
-        └─→ rag_engine.build_rag_chain()  → vector_store.py (Chroma + HF embeddings)
-                        │
-                        ▼
-                 ask_question() — chat over the transcript
+        ├─→ core/summarizer.generate_title() / summarize()   (Mistral, chunked at 3000 chars)
+        ├─→ core/extractor: action items / key decisions / open questions   (Mistral)
+        └─→ core/rag_engine.build_rag_chain()
+                 │
+                 ▼
+        core/vector_store.py — chunk transcript (500/50), embed with
+        all-MiniLM-L6-v2, persist to a local Chroma collection ("meeting_transcript")
+                 │
+                 ▼
+        ask_question() — retrieve top-k chunks, answer via Mistral, grounded in transcript
 ```
-
-## Project Structure
-
-| Path | Purpose |
-|---|---|
-| `main.py` | CLI entry point and pipeline orchestration |
-| `streamlit_app.py` | Streamlit web interface |
-| `test.py` | Runs the pipeline against a sample YouTube URL |
-| `core/audio_processor.py` | Download/convert audio, chunk WAV files |
-| `core/transcriber.py` | Whisper and Sarvam transcription logic |
-| `core/summarizer.py` | Transcript summarization and title generation |
-| `core/extractor.py` | Action item, decision, and question extraction |
-| `core/rag_engine.py` | RAG chain construction and question answering |
-| `core/vector_store.py` | Embeddings and Chroma vector store persistence |
-| `utils/audio_processor.py` | Shared audio download/conversion/chunking helpers |
-
-## Requirements
-
-- Python 3.10+
-- `ffmpeg` installed on the system (required by `pydub` for format conversion/chunking)
 
 ## Installation
 
@@ -59,6 +51,8 @@ git clone https://github.com/chmodgaurav/AI_Video_Assistant.git
 cd AI_Video_Assistant
 pip install -r requirements.txt
 ```
+
+**System requirement:** `ffmpeg` must be installed and on `PATH` (required by `pydub` for audio conversion/chunking).
 
 ## Configuration
 
@@ -71,8 +65,8 @@ WHISPER_MODEL=small
 ```
 
 - `MISTRAL_API_KEY` — required for summarization, extraction, title generation, and RAG chat
-- `SARVAM_API_KEY` — required only when using `hinglish` transcription
-- `WHISPER_MODEL` — defaults to `small` if unset
+- `SARVAM_API_KEY` — required only when transcribing with `hinglish`
+- `WHISPER_MODEL` — Whisper model size (`tiny`/`base`/`small`/`medium`/`large`); defaults to `small`
 
 ## Usage
 
@@ -82,10 +76,7 @@ WHISPER_MODEL=small
 python main.py
 ```
 
-Prompts for a YouTube URL or local file path, then a language option:
-
-- `english` — local Whisper transcription
-- `hinglish` — Sarvam transcription
+Prompts for a YouTube URL or local file path, then a language (`english` or `hinglish`), runs the full pipeline, prints title/summary/action items/decisions/questions, then drops into an interactive RAG chat loop over the transcript (type `exit` to quit).
 
 ### Streamlit UI
 
@@ -93,22 +84,54 @@ Prompts for a YouTube URL or local file path, then a language option:
 streamlit run streamlit_app.py
 ```
 
-Open the local URL shown in the terminal to upload a file or paste a link through the browser.
+Open the local URL printed in the terminal to upload a file or paste a link through the browser.
 
-### Sample run
+### Smoke test
 
 ```bash
 python test.py
 ```
 
-Runs the full pipeline end-to-end against a sample YouTube URL for a quick smoke test.
+Runs the full pipeline end-to-end against a hardcoded sample YouTube URL.
+
+## Project Structure
+
+| Path | Purpose |
+|---|---|
+| `main.py` | CLI entry point and pipeline orchestration |
+| `streamlit_app.py` | Streamlit web interface |
+| `test.py` | Runs the pipeline against a sample YouTube URL |
+| `core/transcriber.py` | Whisper and Sarvam transcription logic |
+| `core/summarizer.py` | Transcript summarization and title generation (Mistral) |
+| `core/extractor.py` | Action item, decision, and question extraction (Mistral) |
+| `core/rag_engine.py` | RAG chain construction and question answering |
+| `core/vector_store.py` | Chunking, embeddings, and Chroma persistence |
+| `utils/audio_processor.py` | YouTube download, format conversion, and chunking helpers |
+| `render.yaml` | Render.com deployment config |
+
+## Deployment
+
+`render.yaml` defines a Render.com web service that installs `requirements.txt` and starts Streamlit. Its `startCommand` currently points at `app.py`, which does not exist in this repo — update it to `streamlit_app.py` before deploying to Render.
 
 ## Notes
 
-- `yt-dlp` handles YouTube audio extraction.
-- `openai-whisper` downloads and caches a local model on first use — this can take significant disk space depending on `WHISPER_MODEL`.
-- `pydub` + `ffmpeg` handle audio format conversion and chunking.
-- The RAG chat uses Chroma with Hugging Face embeddings for transcript retrieval.
+- `openai-whisper` downloads and caches a model locally on first use; larger `WHISPER_MODEL` values need more disk space and RAM.
+- The Chroma vector store used for RAG is rebuilt per run (`vector_db/`, collection `meeting_transcript`) — it isn't a persistent cross-session knowledge base.
+- Sarvam's API has a hard 30-second-per-request limit, so `transcriber.py` re-slices each audio chunk into ~25s pieces for that path.
+
+## Future Improvements
+
+- Persist/reuse Chroma collections across runs instead of rebuilding per transcript
+- Fix or remove the stale `app.py` reference in `render.yaml`
+- Add export options (PDF/Markdown) — `reportlab` and `fpdf2` are already in `requirements.txt` but unused in the current pipeline
+
+## Screenshots
+
+_Add screenshots of the CLI output and Streamlit UI here._
+
+## Contributing
+
+Issues and pull requests are welcome.
 
 ## License
 
