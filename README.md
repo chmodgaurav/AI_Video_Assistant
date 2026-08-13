@@ -127,7 +127,8 @@ Runs the full pipeline end-to-end against a hardcoded sample YouTube URL.
 
 ## Screenshots
 
-_Add screenshots of the CLI output and Streamlit UI here._
+<img width="1920" height="1080" alt="Screenshot From 2026-08-13 12-12-12" src="https://github.com/user-attachments/assets/532c7630-2044-46f4-a29b-599cb9e94f0e" />
+
 
 ## Contributing
 
